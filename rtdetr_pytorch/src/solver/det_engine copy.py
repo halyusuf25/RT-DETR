@@ -10,7 +10,6 @@ import os
 import sys
 import pathlib
 from typing import Iterable
-from tqdm import tqdm  # <--- import tqdm
 
 import torch
 import torch.amp 
@@ -33,7 +32,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
 
-    for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
+    for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 

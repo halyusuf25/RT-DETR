@@ -1,0 +1,46 @@
+module load python/3.11/3.11.4
+module load cuda12/12.4
+module load openmpi5/5.0.5
+
+
+# training on single-gpu
+export CUDA_VISIBLE_DEVICES=0
+python tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+
+
+# train on multi-gpu
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+
+
+CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+CUDA_VISIBLE_DEVICES=0,1,2,3 python tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+
+
+
+# val on multi-gpu
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+torchrun --nproc_per_node=4 tools/train.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+# val on multi-gpu
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 tools/train.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=4 tools/train.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 python tools/train.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+
+
+CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 test_script.py 
