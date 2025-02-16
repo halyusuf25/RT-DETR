@@ -7,7 +7,8 @@ import torch.nn as nn
 
 import torchvision
 torchvision.disable_beta_transforms_warning()
-from torchvision import datapoints
+# from torchvision import datapoints
+from torchvision import tv_tensors as datapoints
 
 import torchvision.transforms.v2 as T
 import torchvision.transforms.v2.functional as F
@@ -26,9 +27,10 @@ RandomZoomOut = register(T.RandomZoomOut)
 # RandomIoUCrop = register(T.RandomIoUCrop)
 RandomHorizontalFlip = register(T.RandomHorizontalFlip)
 Resize = register(T.Resize)
-ToImageTensor = register(T.ToImageTensor)
-ConvertDtype = register(T.ConvertDtype)
-SanitizeBoundingBox = register(T.SanitizeBoundingBox)
+# ToImageTensor = register(T.ToImageTensor)
+ToImageTensor = register(T.ToImage)
+ConvertDtype = register(T.ConvertImageDtype)
+SanitizeBoundingBox = register(T.SanitizeBoundingBoxes)
 RandomCrop = register(T.RandomCrop)
 Normalize = register(T.Normalize)
 
@@ -73,7 +75,7 @@ class PadToSize(T.Pad):
         datapoints.Image,
         datapoints.Video,
         datapoints.Mask,
-        datapoints.BoundingBox,
+        datapoints.BoundingBoxes,
     )
     def _get_params(self, flat_inputs: List[Any]) -> Dict[str, Any]:
         sz = F.get_spatial_size(flat_inputs[0])
@@ -116,7 +118,7 @@ class RandomIoUCrop(T.RandomIoUCrop):
 @register
 class ConvertBox(T.Transform):
     _transformed_types = (
-        datapoints.BoundingBox,
+        datapoints.BoundingBoxes,
     )
     def __init__(self, out_fmt='', normalize=False) -> None:
         super().__init__()
@@ -130,13 +132,13 @@ class ConvertBox(T.Transform):
 
     def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:  
         if self.out_fmt:
-            spatial_size = inpt.spatial_size
+            spatial_size = inpt.canvas_size
             in_fmt = inpt.format.value.lower()
             inpt = torchvision.ops.box_convert(inpt, in_fmt=in_fmt, out_fmt=self.out_fmt)
-            inpt = datapoints.BoundingBox(inpt, format=self.data_fmt[self.out_fmt], spatial_size=spatial_size)
+            inpt = datapoints.BoundingBoxes(inpt, format=self.data_fmt[self.out_fmt], canvas_size=spatial_size)
         
         if self.normalize:
-            inpt = inpt / torch.tensor(inpt.spatial_size[::-1]).tile(2)[None]
+            inpt = inpt / torch.tensor(inpt.canvas_size[::-1]).tile(2)[None]
 
         return inpt
 
