@@ -4,4 +4,5 @@ from .criterion import *
 
 # 
 from .backbone import *
+from .teacher import *
 

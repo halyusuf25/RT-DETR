@@ -16,8 +16,9 @@ from .det_engine import train_one_epoch, evaluate
 
 class DetSolver(BaseSolver):
     
-    def fit(self, ):
+    def fit(self, teacher_model=None):
         print("Start training")
+        self.teacher_model = teacher_model
         self.train()
 
         args = self.cfg 
@@ -36,7 +37,8 @@ class DetSolver(BaseSolver):
             
             train_stats = train_one_epoch(
                 self.model, self.criterion, self.train_dataloader, self.optimizer, self.device, epoch,
-                args.clip_max_norm, print_freq=args.log_step, ema=self.ema, scaler=self.scaler)
+                args.clip_max_norm, print_freq=args.log_step, ema=self.ema, scaler=self.scaler,
+                teacher_model = self.teacher_model)
 
             self.lr_scheduler.step()
             
@@ -47,7 +49,11 @@ class DetSolver(BaseSolver):
                     checkpoint_paths.append(self.output_dir / f'checkpoint{epoch:04}.pth')
                 for checkpoint_path in checkpoint_paths:
                     dist.save_on_master(self.state_dict(epoch), checkpoint_path)
-
+                
+                if (epoch + 1) % 5 == 0:
+                    mycheckpoint_path = self.output_dir / f'checkpoint_epoch_{epoch + 1}.pth'
+                    dist.save_on_master(self.state_dict(epoch), mycheckpoint_path)
+            
             module = self.ema.module if self.ema else self.model
             test_stats, coco_evaluator = evaluate(
                 module, self.criterion, self.postprocessor, self.val_dataloader, base_ds, self.device, self.output_dir
