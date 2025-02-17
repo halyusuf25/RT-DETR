@@ -17,11 +17,13 @@ import torch.amp
 
 from src.data import CocoEvaluator
 from src.misc import (MetricLogger, SmoothedValue, reduce_dict)
+from src.misc.distillation import compute_response_loss
 
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0, **kwargs):
+                    device: torch.device, epoch: int, max_norm: float = 0, 
+                    teacher_model: torch.nn.Module = None, **kwargs):
     model.train()
     criterion.train()
     metric_logger = MetricLogger(delimiter="  ")
@@ -36,6 +38,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        teacher_model = teacher_model.to(device) if teacher_model is not None else None
 
         if scaler is not None:
             with torch.autocast(device_type=str(device), cache_enabled=True):
@@ -43,7 +46,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             
             with torch.autocast(device_type=str(device), enabled=False):
                 loss_dict = criterion(outputs, targets)
-
+    
             loss = sum(loss_dict.values())
             scaler.scale(loss).backward()
             
@@ -57,8 +60,17 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         else:
             outputs = model(samples, targets)
+            # print(f"outputs: {outputs}")
+            # print(f"student_pred_logits shape: {outputs['pred_logits'].shape}")
+            # print(f"student_pred_boxes shape: {outputs['pred_boxes'].shape}")
             loss_dict = criterion(outputs, targets)
+            if teacher_model is not None:
+                with torch.no_grad():
+                    teacher_outputs = teacher_model(samples)
             
+            # print(f"teacher_pred_logits shape: {teacher_outputs['pred_logits'].shape}")
+            # print(f"teacher_pred_boxes shape: {teacher_outputs['pred_boxes'].shape}")
+            loss_dict['kd_loss'] = compute_response_loss(outputs, teacher_outputs, temprature=1.0)   
             loss = sum(loss_dict.values())
             optimizer.zero_grad()
             loss.backward()
