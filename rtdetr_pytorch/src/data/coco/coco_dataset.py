@@ -153,6 +153,7 @@ class ConvertCocoPolysToMask(object):
 
 
 mscoco_category2name = {
+    0: 'background',
     1: 'person',
     2: 'bicycle',
     3: 'car',
