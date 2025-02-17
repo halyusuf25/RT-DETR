@@ -49,7 +49,7 @@ RTDETRTransformer:
   hidden_dim: 256
   num_levels: 3
 
-  num_queries: 300
+  num_queries: 900
 
   num_decoder_layers: 6
   num_denoising: 100
