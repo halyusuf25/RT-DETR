@@ -2,6 +2,11 @@
 """
 
 import os 
+os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
+os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
+os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+os.environ["NCCL_DEBUG"] = "INFO"
+os.environ["NCCL_P2P_DISABLE"] = "1"
 import sys 
 import logging
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
