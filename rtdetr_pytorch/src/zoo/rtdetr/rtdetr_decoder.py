@@ -552,7 +552,12 @@ class RTDETRTransformer(nn.Module):
             dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta['dn_num_split'], dim=2)
             dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
 
-        out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
+        out = {
+            'pred_logits': out_logits[-1], 
+            'pred_boxes': out_bboxes[-1],
+            'pred_logits_per_layer': out_logits,
+            'pred_boxes_per_layer': out_bboxes
+        }
 
         if self.training and self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1])
