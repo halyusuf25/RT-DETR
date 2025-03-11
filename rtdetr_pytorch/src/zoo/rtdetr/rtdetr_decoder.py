@@ -135,6 +135,8 @@ class MSDeformableAttention(nn.Module):
                 "Last dim of reference_points must be 2 or 4, but get {} instead.".
                 format(reference_points.shape[-1]))
 
+        self.sampling_locations = sampling_locations
+
         output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights)
 
         output = self.output_proj(output)
@@ -556,7 +558,9 @@ class RTDETRTransformer(nn.Module):
             'pred_logits': out_logits[-1], 
             'pred_boxes': out_bboxes[-1],
             'pred_logits_per_layer': out_logits,
-            'pred_boxes_per_layer': out_bboxes
+            'pred_boxes_per_layer': out_bboxes,
+            'intermediate_ref_points': out_bboxes,
+            'decoder_layers': self.decoder.layers,
         }
 
         if self.training and self.aux_loss:
