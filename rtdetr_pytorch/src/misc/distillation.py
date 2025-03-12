@@ -16,17 +16,15 @@ def matching_outputs_per_layer(matcher, batch_size, layer_id, student_outputs, t
         dict: The result of the matcher function, which contains the matched outputs.
     """
     
-    st_output = {"logits": student_outputs['pred_logits_per_layer'][layer_id],
+    st_output = {"pred_logits": student_outputs['pred_logits_per_layer'][layer_id],
                  "pred_boxes": student_outputs['pred_boxes_per_layer'][layer_id]}
     targets = []
     for item in range(batch_size):
         _, class_labels = torch.max(teacher_outputs['pred_logits_per_layer'][layer_id, item, topk_teacher_indices[layer_id, item]], dim=-1)
         boxes = teacher_outputs['pred_boxes_per_layer'][layer_id, item, topk_teacher_indices[layer_id, item]]
         # targets.append({"class_labels": class_labels.detach().cpu(), "boxes": boxes.detach().cpu()})
-        targets.append({"class_labels": class_labels, "boxes": boxes})
+        targets.append({"labels": class_labels, "boxes": boxes})
 
-    # print(f"device of the student outputs is {st_output['logits'].device}")
-    # print(f"device of the teacher outputs is {targets[0]['class_labels'].device}")
     matcher_outputs = matcher(st_output, targets)
     return matcher_outputs
 
@@ -76,10 +74,31 @@ def generate_attention_maps_per_layer(
     return final_maps / (num_heads * num_feature_level)
 
 
+def get_topk_queries(input_logits, k=100):
+    """
+    Get the top k queries from the input logits.
+    Args:
+        input_logits (torch.Tensor): The input logits tensor of shape [num_layers, batch_size, num_queries, num_classes].
+        k (int): The number of top queries to get.
+    Returns:
+        topk_values (torch.Tensor): The top k values of the input logits tensor.
+        topk_indices (torch.Tensor): The top k indices of the input logits tensor.
+    """
+    queries = torch.softmax(input_logits, dim=-1)   # Shape becomes [num_layers, batch_size, num_queries, num_classes]
+    queries = queries.max(dim=-1, keepdim=True).values  # Shape becomes [num_layers, batch_size, num_queries, 1]
+    queries = queries.squeeze(-1)  # Shape becomes [num_layers, batch_size, num_queries]
+    topk_values, topk_indices = queries.topk(k=k, dim=-1)
+    return topk_values, topk_indices
+
 def get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices):   
     #find the topk-quiries indices for the teacher, and selecte the student queries accordingly
+    print(f"matched_indices: {matched_indices}")
     topk_indices = teacher_topk_indices[layer_id, batch_item].tolist()
-    only_topk_matched_indices = [(x, y) for x, y in matched_indices[batch_item] if y in set(topk_indices)]
+    print(f"topk_indices: {topk_indices}")
+    x_vals, y_vals = matched_indices[batch_item]  # Unpack the tuple of tensors
+    only_topk_matched_indices = [(x.item(), y.item()) for x, y in zip(x_vals, y_vals) if y.item() in set(topk_indices)]
+    # only_topk_matched_indices = [(x, y) for x, y in matched_indices[batch_item] if y in set(topk_indices)]
+    print(f"only_topk_matched_indices: {only_topk_matched_indices}")
     st_topk_indices, tr_topk_indices = zip(*only_topk_matched_indices) if only_topk_matched_indices else ([], [])
 
     #match the topk_indices of the teacher
@@ -116,11 +135,7 @@ def compute_attention_mapp_loss(student_outputs,
                                 teacher_model, 
                                 matcher,
                                 layers, 
-                                student_sampling_coords,
-                                teacher_sampling_coords, 
-                                student_topk_indices, 
                                 teacher_topk_indices, 
-                                batch_size, 
                                 attn_map_loss_fn, 
                                 h_, w_ , 
                                 device
@@ -145,10 +160,9 @@ def compute_attention_mapp_loss(student_outputs,
         torch.Tensor: The total attention map loss.
     """
     
-    
-    
-    st_decoder_layers = student_model.model.decoder.layers
-    
+    batch_size = student_outputs['pred_logits'].shape[0]
+    # print(f"student model: {student_model}")
+    st_decoder_layers = student_model.module.decoder.decoder.layers  
     tr_decoder_layers = teacher_model.transformer.decoder.layers
 
     total_attn_map_loss=0
@@ -166,24 +180,27 @@ def compute_attention_mapp_loss(student_outputs,
 
             st_quer_indices, tr_quer_indices = get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices)
 
-            student_maps = generate_attention_maps_per_layer(batch_item, 
-                                                             st_quer_indices, 
-                                                             student_sampling_coords, 
-                                                             st_attn_w, 
-                                                             h_, w_, 
-                                                             device
-            )
+            student_attn_weights = st_decoder_layers[layer_id].cross_attn_weights[batch_item, st_quer_indices]
+            teacher_attn_weights = tr_decoder_layers[layer_id].cross_attn_weights[batch_item, tr_quer_indices]
+            # student_maps = generate_attention_maps_per_layer(batch_item, 
+            #                                                  st_quer_indices, 
+            #                                                  student_sampling_coords, 
+            #                                                  st_attn_w, 
+            #                                                  h_, w_, 
+            #                                                  device
+            # )
 
-            teacher_maps = generate_attention_maps_per_layer(batch_item, 
-                                                             tr_quer_indices, 
-                                                             teacher_sampling_coords, 
-                                                             tr_attn_w, 
-                                                             h_, w_, 
-                                                             device
-            )
+            # teacher_maps = generate_attention_maps_per_layer(batch_item, 
+            #                                                  tr_quer_indices, 
+            #                                                  teacher_sampling_coords, 
+            #                                                  tr_attn_w, 
+            #                                                  h_, w_, 
+            #                                                  device
+            # )
                         
-            loss_per_batch += attn_map_loss_fn(teacher_maps.clone().detach().to(device), student_maps.clone().detach().to(device))
+            # loss_per_batch += attn_map_loss_fn(teacher_maps.clone().detach().to(device), student_maps.clone().detach().to(device))
+            loss_per_batch += attn_map_loss_fn(teacher_attn_weights, student_attn_weights)
         
         total_attn_map_loss += loss_per_batch / batch_size
 
-    return total_attn_map_loss
+    return total_attn_map_loss / len(layers)
