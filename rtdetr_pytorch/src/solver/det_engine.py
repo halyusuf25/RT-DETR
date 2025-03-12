@@ -17,8 +17,7 @@ import torch.amp
 
 from src.data import CocoEvaluator
 from src.misc import (MetricLogger, SmoothedValue, reduce_dict)
-from src.misc.distillation import compute_response_loss
-
+from src.misc.distillation import compute_response_loss, compute_attention_mapp_loss, get_topk_queries
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -35,7 +34,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
 
-    teacher_model = teacher_model.to(device) if teacher_model is not None else None
+    if teacher_model is not None:
+        teacher_model.eval()
+        teacher_model = teacher_model.to(device)
 
     for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
         samples = samples.to(device)
@@ -62,18 +63,27 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         else:
             outputs = model(samples, targets)
-            # print(f"outputs: {outputs}")
-            # print(f"student_pred_logits shape: {outputs['pred_logits'].shape}")
-            # print(f"student_pred_boxes shape: {outputs['pred_boxes'].shape}")
             loss_dict = criterion(outputs, targets)
             if teacher_model is not None:
-                # teacher_model = teacher_model.to(device) if teacher_model is not None else None
-                teacher_model.eval()
+                
                 with torch.no_grad():
                     teacher_outputs = teacher_model(samples)
-                # print(f"teacher_pred_logits shape: {teacher_outputs['pred_logits'].shape}")
-                # print(f"teacher_pred_boxes shape: {teacher_outputs['pred_boxes'].shape}")
-                loss_dict['kd_loss'] = compute_response_loss(outputs, teacher_outputs, temprature=1.0)  
+
+                _ , teacher_topk_indices = get_topk_queries(teacher_outputs["pred_logits_per_layer"], k=100)
+                teacher_topk_indices = teacher_topk_indices.long()
+                loss_dict['kd_response_loss'] = compute_response_loss(outputs, 
+                                                                      teacher_outputs, 
+                                                                      temprature=1.0)  
+                loss_dict['atten_map_loss'] = compute_attention_mapp_loss(outputs,
+                                                                         teacher_outputs,
+                                                                         model,
+                                                                         teacher_model,
+                                                                         criterion.matcher,
+                                                                         [3,4,5], #decoder layers to include into distillation
+                                                                         teacher_topk_indices,
+                                                                         torch.nn.MSELoss(), #loss function for attention map
+                                                                         256,256, #this is the dimension of the model decoder, TODO: to be changed to a varaible
+                                                                         device)
                  
             loss = sum(loss_dict.values())
             optimizer.zero_grad()
