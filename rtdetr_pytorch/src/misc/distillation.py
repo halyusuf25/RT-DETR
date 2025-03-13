@@ -169,11 +169,11 @@ def compute_attention_mapp_loss(student_outputs,
     for layer_id in layers:
         matched_indices = matching_outputs_per_layer(matcher, batch_size, layer_id, student_outputs, teacher_outputs, teacher_topk_indices)
         
-        st_attn_w = st_decoder_layers[layer_id].cross_attn.attention_weights_stored
-        student_sampling_coords = st_decoder_layers[0].cross_attn.sampling_locations
+        # st_attn_w = st_decoder_layers[layer_id].cross_attn.attention_weights_stored
+        # student_sampling_coords = st_decoder_layers[0].cross_attn.sampling_locations
         
-        teacher_sampling_coords = tr_decoder_layers[0].cross_attn.sampling_locations
-        tr_attn_w = tr_decoder_layers[layer_id].cross_attn.attention_weights_stored
+        # teacher_sampling_coords = tr_decoder_layers[0].cross_attn.sampling_locations
+        # tr_attn_w = tr_decoder_layers[layer_id].cross_attn.attention_weights_stored
         
         loss_per_batch = 0
         for batch_item in range(batch_size):  
