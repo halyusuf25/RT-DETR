@@ -20,7 +20,6 @@ class DetSolver(BaseSolver):
         print("Start training")
         self.teacher_model = teacher_model
         self.train()
-
         args = self.cfg 
         
         n_parameters = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -50,9 +49,9 @@ class DetSolver(BaseSolver):
                 for checkpoint_path in checkpoint_paths:
                     dist.save_on_master(self.state_dict(epoch), checkpoint_path)
                 
-                if (epoch + 1) % 5 == 0:
-                    mycheckpoint_path = self.output_dir / f'checkpoint_epoch_{epoch + 1}.pth'
-                    dist.save_on_master(self.state_dict(epoch), mycheckpoint_path)
+                # if (epoch + 1) % 5 == 0:
+                #     mycheckpoint_path = self.output_dir / f'checkpoint_epoch_{epoch + 1}.pth'
+                #     dist.save_on_master(self.state_dict(epoch), mycheckpoint_path)
             
             module = self.ema.module if self.ema else self.model
             test_stats, coco_evaluator = evaluate(

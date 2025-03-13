@@ -135,7 +135,9 @@ class MSDeformableAttention(nn.Module):
                 "Last dim of reference_points must be 2 or 4, but get {} instead.".
                 format(reference_points.shape[-1]))
 
-        self.sampling_locations = sampling_locations
+        # self.attention_weights_stored = attention_weights
+        # self.sampling_locations = sampling_locations
+
 
         output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights)
 
@@ -219,6 +221,8 @@ class TransformerDecoderLayer(nn.Module):
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
 
+        self.cross_attn_weights = tgt2 #added by me for distillation computation.
+        
         # ffn
         tgt2 = self.forward_ffn(tgt)
         tgt = tgt + self.dropout4(tgt2)
