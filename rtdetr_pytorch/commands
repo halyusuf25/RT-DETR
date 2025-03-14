@@ -1,6 +1,14 @@
 module load python/3.11/3.11.4
-module load cuda12/12.4
+module load cuda12/12.4.1 
+module load python/3.9/3.9.10 
+module load cuda11/11.8 
+module load cuda11-sdk/22.11
+module load pytorch/nvidia/22.12
 module load openmpi5/5.0.5
+
+source .venv/bin/activate
+
+pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.1 --extra-index-url https://download.pytorch.org/whl/cu118
 
 
 # training on single-gpu
@@ -31,7 +39,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 tools/train.py \
             -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
             --test-only
 
-CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=4 tools/train.py \
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 tools/train.py \
             -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
             -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
             --test-only
@@ -43,4 +51,15 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python tools/train.py \
 
 
 
-CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 test_script.py 
+torchrun --nproc_per_node=4 tools/test2.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+torchrun --nproc_per_node=1 tools/train2.py \
+            -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+            -r /groups/eungjoolee/data/halyusuf/pretrined_model/rtdetr/rtdetr_r50vd_6x_coco_from_paddle.pth \
+            --test-only
+
+
+torchrun --nproc_per_node=2 --nnodes=1 --master-port=8989 tools/train2.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
