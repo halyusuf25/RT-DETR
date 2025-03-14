@@ -1,6 +1,5 @@
 import torch
 
-
 def matching_outputs_per_layer(matcher, batch_size, layer_id, student_outputs, teacher_outputs, topk_teacher_indices):
     """
     Matches the outputs of the student model to the teacher model's outputs for a specific layer.
@@ -90,23 +89,63 @@ def get_topk_queries(input_logits, k=100):
     topk_values, topk_indices = queries.topk(k=k, dim=-1)
     return topk_values, topk_indices
 
-def get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices):   
-    #find the topk-quiries indices for the teacher, and selecte the student queries accordingly
-    print(f"matched_indices: {matched_indices}")
-    topk_indices = teacher_topk_indices[layer_id, batch_item].tolist()
-    print(f"topk_indices: {topk_indices}")
-    x_vals, y_vals = matched_indices[batch_item]  # Unpack the tuple of tensors
-    only_topk_matched_indices = [(x.item(), y.item()) for x, y in zip(x_vals, y_vals) if y.item() in set(topk_indices)]
-    # only_topk_matched_indices = [(x, y) for x, y in matched_indices[batch_item] if y in set(topk_indices)]
-    print(f"only_topk_matched_indices: {only_topk_matched_indices}")
-    st_topk_indices, tr_topk_indices = zip(*only_topk_matched_indices) if only_topk_matched_indices else ([], [])
+# def get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices):   
+#     #find the topk-quiries indices for the teacher, and selecte the student queries accordingly
+#     print(f"below print statements are for troubleshooting get_topk_indices() function")
+#     print(f"layer_id: {layer_id}, batch_item: {batch_item}")
+#     print(f"matched_indices: {matched_indices}")
+#     topk_indices = teacher_topk_indices[layer_id, batch_item].tolist()
+#     print(f"topk_indices: {topk_indices}")
+#     x_vals, y_vals = matched_indices[batch_item]  # Unpack the tuple of tensors
+#     print(f"x_vals: {x_vals}")
+#     print(f"y_vals: {y_vals}")
+#     only_topk_matched_indices = [(x.item(), y.item()) for x, y in zip(x_vals, y_vals) if y.item() in set(topk_indices)]
+#     print(f"only_topk_matched_indices: {only_topk_matched_indices}")
+#     st_topk_indices, tr_topk_indices = zip(*only_topk_matched_indices) if only_topk_matched_indices else ([], [])
+#     print(f"st_topk_indices: {st_topk_indices}")
+#     print(f"tr_topk_indices: {tr_topk_indices}")
+#     #match the topk_indices of the teacher
+#     tr_after_matching =  [topk_indices[i] for i in tr_topk_indices]
+#     print(f"tr_after_matching: {tr_after_matching}")
 
-    #match the topk_indices of the teacher
-    tr_after_matching =  [topk_indices[i] for i in tr_topk_indices]
+#     return st_topk_indices, tr_after_matching
+
+def get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices):   
+    print(f"--- Debugging get_topk_indices() ---")
+    print(f"layer_id: {layer_id}, batch_item: {batch_item}")
+    
+    topk_indices = teacher_topk_indices[layer_id, batch_item].tolist()
+    
+    x_vals, y_vals = matched_indices[batch_item]  # Unpack the tuple of tensors
+    
+    only_topk_matched_indices = [(x.item(), y.item()) for x, y in zip(x_vals, y_vals) if y.item() in set(topk_indices)]
+    
+    if not only_topk_matched_indices:
+        print(f"Warning: No matching indices found for batch_item {batch_item}.")
+    
+    print(f"only_topk_matched_indices: {only_topk_matched_indices}")
+    
+    st_topk_indices, tr_topk_indices = zip(*only_topk_matched_indices) if only_topk_matched_indices else ([], [])
+    print(f"st_topk_indices: {st_topk_indices}")
+    print(f"tr_topk_indices: {tr_topk_indices}")
+
+    # Check if all tr_topk_indices exist within range of topk_indices
+    valid_tr_topk_indices = [i for i in tr_topk_indices if i < len(topk_indices)]
+    
+    if len(valid_tr_topk_indices) != len(tr_topk_indices):
+        print(f"Warning: Some indices in tr_topk_indices are out of range! Invalid: {set(tr_topk_indices) - set(valid_tr_topk_indices)}")
+
+    # Match the top-k indices of the teacher while ensuring indices are within range
+    tr_after_matching = [topk_indices[i] for i in valid_tr_topk_indices]
+    
+    print(f"tr_after_matching: {tr_after_matching}")
+    print(f"len(st_topk_indices): {len(st_topk_indices)}")
+    print(f"len(tr_after_matching): {len(tr_after_matching)}")
 
     return st_topk_indices, tr_after_matching
 
-def compute_response_loss(student_outputs, teacher_outputs, temprature=1.0):
+
+def compute_response_loss(student_outputs, teacher_outputs, temperature=1.0):
     """
     Computes the response-based knowledge distillation loss between the student and teacher model outputs.
     This function calculates the loss by comparing the softened logits of the student model to the softened logits of the teacher model. 
@@ -122,85 +161,107 @@ def compute_response_loss(student_outputs, teacher_outputs, temprature=1.0):
     
     student_logits = student_outputs['pred_logits']
     teacher_logits = teacher_outputs['pred_logits']
-    #Soften the student logits by applying softmax first and log() second
-    soft_targets = torch.nn.functional.softmax(teacher_logits / temprature, dim=-1)
-    soft_prob = torch.nn.functional.log_softmax(student_logits / temprature, dim=-1)
-    # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
-    soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (temprature**2)
-    return soft_targets_loss
 
-def compute_attention_mapp_loss(student_outputs, 
+    student_soft = torch.nn.functional.log_softmax(student_logits / temperature, dim=1)
+    teacher_soft = torch.nn.functional.softmax(teacher_logits / temperature, dim=1)
+    response_distillation_loss = torch.nn.functional.kl_div(student_soft, teacher_soft, reduction='batchmean') * (temperature ** 2)
+   
+    return response_distillation_loss
+
+def compute_attention_map_loss(student_outputs, 
                                 teacher_outputs, 
                                 student_model, 
                                 teacher_model, 
                                 matcher,
                                 layers, 
                                 teacher_topk_indices, 
-                                attn_map_loss_fn, 
-                                h_, w_ , 
-                                device
+                                attn_map_loss_fn=torch.nn.functional.mse_loss, 
 ):
+
     """
-    Computes the attention map loss between the student and teacher models for specified layers.
+    Compute the attention map loss between the student and teacher models.
     Args:
-        student_outputs (dict): Outputs from the student model.
-        teacher_outputs (dict): Outputs from the teacher model.
+        student_outputs (dict): The outputs from the student model, containing 'pred_logits'.
+        teacher_outputs (dict): The outputs from the teacher model.
         student_model (nn.Module): The student model.
         teacher_model (nn.Module): The teacher model.
-        layers (list): List of layer indices to compute the loss for.
-        scaling_tensor (torch.Tensor): Tensor used for scaling coordinates.
-        student_topk_indices (torch.Tensor): Top-k indices for the student model.
-        teacher_topk_indices (torch.Tensor): Top-k indices for the teacher model.
-        batch_size (int): The batch size.
-        attn_map_loss_fn (callable): Loss function to compute the attention map loss.
-        h_ (int): Height of the image.
-        w_ (int): Width of the image.
-        device (torch.device): Device to perform computations on.
+        matcher (callable): A function to match the outputs of the student and teacher models.
+        layers (list): List of layer indices to compute the loss on.
+        teacher_topk_indices (list): List of top-k indices for the teacher model.
+        attn_map_loss_fn (callable): A function to compute the attention map loss.
     Returns:
-        torch.Tensor: The total attention map loss.
+        float: The total attention map loss averaged over the batch.
     """
     
     batch_size = student_outputs['pred_logits'].shape[0]
-    # print(f"student model: {student_model}")
+    print(f"batch_size: {batch_size}")
     st_decoder_layers = student_model.module.decoder.decoder.layers  
     tr_decoder_layers = teacher_model.transformer.decoder.layers
 
     total_attn_map_loss=0
     for layer_id in layers:
-        matched_indices = matching_outputs_per_layer(matcher, batch_size, layer_id, student_outputs, teacher_outputs, teacher_topk_indices)
-        
-        # st_attn_w = st_decoder_layers[layer_id].cross_attn.attention_weights_stored
-        # student_sampling_coords = st_decoder_layers[0].cross_attn.sampling_locations
-        
-        # teacher_sampling_coords = tr_decoder_layers[0].cross_attn.sampling_locations
-        # tr_attn_w = tr_decoder_layers[layer_id].cross_attn.attention_weights_stored
-        
+        matched_indices = matching_outputs_per_layer(matcher, batch_size, layer_id, student_outputs, teacher_outputs, teacher_topk_indices)    
         loss_per_batch = 0
         for batch_item in range(batch_size):  
-
-            st_quer_indices, tr_quer_indices = get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices)
-
+            st_quer_indices, tr_quer_indices = get_topk_indices(layer_id, batch_item, teacher_topk_indices, matched_indices)           
+            print(f"len(st_quer_indices): {len(st_quer_indices)}")
+            print(f"len(tr_quer_indices): {len(tr_quer_indices)}")
             student_attn_weights = st_decoder_layers[layer_id].cross_attn_weights[batch_item, st_quer_indices]
             teacher_attn_weights = tr_decoder_layers[layer_id].cross_attn_weights[batch_item, tr_quer_indices]
-            # student_maps = generate_attention_maps_per_layer(batch_item, 
-            #                                                  st_quer_indices, 
-            #                                                  student_sampling_coords, 
-            #                                                  st_attn_w, 
-            #                                                  h_, w_, 
-            #                                                  device
-            # )
+            # print(f"layer#: {layer_id}, batch_item#: {batch_item}")
+            # print(f"student_attn_weights: {student_attn_weights}")
+            # print(f"teacher_attn_weights: {teacher_attn_weights}")
+            if torch.isnan(teacher_attn_weights).any() or torch.isnan(student_attn_weights).any():
+                print("NaNs in teacher/student attention weights before MSE.")
 
-            # teacher_maps = generate_attention_maps_per_layer(batch_item, 
-            #                                                  tr_quer_indices, 
-            #                                                  teacher_sampling_coords, 
-            #                                                  tr_attn_w, 
-            #                                                  h_, w_, 
-            #                                                  device
-            # )
-                        
-            # loss_per_batch += attn_map_loss_fn(teacher_maps.clone().detach().to(device), student_maps.clone().detach().to(device))
-            loss_per_batch += attn_map_loss_fn(teacher_attn_weights, student_attn_weights)
+            loss_per_batch += max(attn_map_loss_fn(student_attn_weights,teacher_attn_weights),0.0)
+            print(f"loss_per_batch: {loss_per_batch}")
         
-        total_attn_map_loss += loss_per_batch / batch_size
 
-    return total_attn_map_loss / len(layers)
+        total_attn_map_loss += loss_per_batch / batch_size
+        print(f"total_attn_map_loss: {total_attn_map_loss}")
+
+    return total_attn_map_loss
+
+
+def compute_disttlation_loss(student_outputs, 
+                             teacher_outputs, 
+                             student_model, 
+                             teacher_model, 
+                             matcher, 
+                             layers, 
+                             teacher_topk_indices, 
+                             attn_map_loss_fn=torch.nn.functional.mse_loss,
+                             alpha=0.5,
+):
+    """
+    Compute the total distillation loss between the student and teacher models.
+    Args:
+        student_outputs (dict): The outputs from the student model, containing 'pred_logits'.
+        teacher_outputs (dict): The outputs from the teacher model.
+        student_model (nn.Module): The student model.
+        teacher_model (nn.Module): The teacher model.
+        matcher (callable): A function to match the outputs of the student and teacher models.
+        layers (list): List of layer indices to compute the loss on.
+        teacher_topk_indices (list): List of top-k indices for the teacher model.
+        attn_map_loss_fn (callable): A function to compute the attention map loss.
+    Returns:
+        float: The total distillation loss.
+    """
+    
+    response_loss = compute_response_loss(student_outputs, teacher_outputs)
+    attn_map_loss = compute_attention_map_loss(student_outputs, 
+                                                teacher_outputs, 
+                                                student_model, 
+                                                teacher_model, 
+                                                matcher, 
+                                                layers, 
+                                                teacher_topk_indices,
+                                                attn_map_loss_fn=attn_map_loss_fn,)
+
+    # attn_map_loss = torch.clamp(attn_map_loss, min=1e-3)
+    # attn_map_loss = max(attn_map_loss, 1e-4)
+
+    total_distillation_loss = (1-alpha) * response_loss + (alpha) * attn_map_loss
+
+    return total_distillation_loss

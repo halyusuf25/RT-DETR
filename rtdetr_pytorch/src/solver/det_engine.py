@@ -17,7 +17,7 @@ import torch.amp
 
 from src.data import CocoEvaluator
 from src.misc import (MetricLogger, SmoothedValue, reduce_dict)
-from src.misc.distillation import compute_response_loss, compute_attention_mapp_loss, get_topk_queries
+from src.misc.distillation import compute_response_loss, compute_attention_map_loss, get_topk_queries
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -73,17 +73,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 teacher_topk_indices = teacher_topk_indices.long()
                 loss_dict['kd_response_loss'] = compute_response_loss(outputs, 
                                                                       teacher_outputs, 
-                                                                      temprature=1.0)  
-                loss_dict['atten_map_loss'] = compute_attention_mapp_loss(outputs,
+                                                                      temperature=1.0)  
+                loss_dict['atten_map_loss'] = compute_attention_map_loss(outputs,
                                                                          teacher_outputs,
                                                                          model,
                                                                          teacher_model,
                                                                          criterion.matcher,
-                                                                         [3,4,5], #decoder layers to include into distillation
-                                                                         teacher_topk_indices,
-                                                                         torch.nn.MSELoss(), #loss function for attention map
-                                                                         256,256, #this is the dimension of the model decoder, TODO: to be changed to a varaible
-                                                                         device)
+                                                                         [1,2,3,4,5], #decoder layers to include into distillation
+                                                                         teacher_topk_indices,)
                  
             loss = sum(loss_dict.values())
             optimizer.zero_grad()
