@@ -135,10 +135,6 @@ class MSDeformableAttention(nn.Module):
                 "Last dim of reference_points must be 2 or 4, but get {} instead.".
                 format(reference_points.shape[-1]))
 
-        # self.attention_weights_stored = attention_weights
-        # self.sampling_locations = sampling_locations
-
-
         output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights)
 
         output = self.output_proj(output)
