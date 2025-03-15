@@ -1,7 +1,7 @@
 module load python/3.11/3.11.4
-module load cuda12/12.4
-module load openmpi5/5.0.5
-
+module load cuda12/12.4.1 
+source .venv/bin/activate
+cd rtdetr_pytorch/
 
 # training on single-gpu
 export CUDA_VISIBLE_DEVICES=0
@@ -13,10 +13,10 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
 
 
-CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 tools/train.py --nnode=1 -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
 CUDA_VISIBLE_DEVICES=0,1,2,3 python tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
 
-
+OMP_NUM_THREADS=128 torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
 
 # val on multi-gpu
 export CUDA_VISIBLE_DEVICES=0,1,2,3
@@ -44,3 +44,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python tools/train.py \
 
 
 CUDA_LAUNCH_BLOCKING=1 TORCH_DISTRIBUTED_DEBUG=INFO CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --nproc_per_node=4 test_script.py 
+
+
+torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+OMP_NUM_THREADS=128 torchrun --nproc_per_node=4 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+torchrun --nproc_per_node=4 --master_port=32345 tools/train.py -c configs/rtdetr/rtdetr_r50vd_top100.yml
