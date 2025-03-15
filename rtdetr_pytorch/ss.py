@@ -11,13 +11,13 @@ import pickle
 # import numpy as np
 # from torch.utils.data import DataLoader
 
-HDEFORMABLE_SWIN_L_900_ARGS = '/data/shared/pretrained_models/hdeformable/args900.pkl'
+HDEFORMABLE_SWIN_L_900_ARGS = '/groups/eungjoolee/data/halyusuf/pretrined_model/hdeformable/args900.pkl'
 # HDEFORMABLE_SWIN_L_900_ARGS_NoDevice = 'args_hdeformable_SwinLarg_900q_no_device.pkl'
 
 # import necessary function to run buil_model from H-DEFORMABLE-DETR repo
 # import importlib
 import sys
-sys.path.append(os.path.expanduser('/data/halyusuf/github/test/H-Deformable-DETR'))
+sys.path.append(os.path.expanduser('/home/u14/halyusuf/github/H-Deformable-DETR'))
 # import util.misc as utils
 # import custom_datasets.samplers as samplers
 # from custom_datasets import build_dataset, get_coco_api_from_dataset
@@ -31,7 +31,7 @@ import pprint as pp
 with open(HDEFORMABLE_SWIN_L_900_ARGS, 'rb') as f:
     loaded_args = pickle.load(f)
 
-loaded_args.pretrained_backbone_path = '/data/shared/pretrained_backbones/swin/swin_large_patch4_window7_224_22k.pth'
+loaded_args.pretrained_backbone_path = '/groups/eungjoolee/data/halyusuf/pretrined_model/swin/swin_large_patch4_window7_224_22k.pth'
 
 teacher_model, teacher_criterion, teacher_postprocessors = build_model(loaded_args)
 print(f"loaded arguments: {loaded_args}")

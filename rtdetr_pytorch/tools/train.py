@@ -11,9 +11,9 @@ from src.core import YAMLConfig
 from src.solver import TASKS
 from src.nn.teacher import get_teacher_model
 
-TEACHER_ARGS_PATH = '/data/shared/pretrained_models/hdeformable/args900.pkl'
-TEACHER_PRETRAINED_MODEL_PATH = '/data/shared/pretrained_models/hdeformable/ckpt900.pth'
-TEACHER_PRETRAINED_BACKBONE_PATH = '/data/shared/pretrained_backbones/swin/swin_large_patch4_window7_224_22k.pth'
+TEACHER_ARGS_PATH = '/groups/eungjoolee/data/halyusuf/pretrined_model/hdeformable/args900.pkl'
+TEACHER_PRETRAINED_MODEL_PATH = '/groups/eungjoolee/data/halyusuf/pretrined_model/hdeformable/decay_900.pth'
+TEACHER_PRETRAINED_BACKBONE_PATH = '/groups/eungjoolee/data/halyusuf/pretrined_model/swin/swin_large_patch4_window7_224_22k.pth'
 
 def main(args, ) -> None:
     '''main

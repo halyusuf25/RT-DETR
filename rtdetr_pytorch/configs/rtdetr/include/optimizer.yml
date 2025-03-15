@@ -6,9 +6,9 @@ ema:
   warmups: 2000
 
 
-find_unused_parameters: True 
+find_unused_parameters: False 
 
-epoches: 3
+epoches: 72
 clip_max_norm: 0.1
 
 optimizer:

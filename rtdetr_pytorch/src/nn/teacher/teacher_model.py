@@ -2,7 +2,7 @@
 import os
 import pickle
 import sys
-sys.path.append(os.path.expanduser('/data/halyusuf/github/test/H-Deformable-DETR'))
+sys.path.append(os.path.expanduser('/home/u14/halyusuf/github/H-Deformable-DETR'))
 from models import build_model
 
 def get_teacher_model(
