@@ -6,3 +6,7 @@ pycocotools
 PyYAML
 scipy
 transformers
+tqdm
+cython
+wandb
+timm
