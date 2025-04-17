@@ -73,7 +73,7 @@ class SetCriterion(nn.Module):
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
 
-    def loss_kd(self, outputs, targets, indices, num_boxes, temperature = 1.0, **kwargs):
+    def loss_kd_response(self, outputs, targets, indices, num_boxes, temperature = 1.0, **kwargs):
         if self.teacher is None:
             return {'loss_kd_response': torch.tensor(0., device=outputs['pred_logits'].device)}
         
@@ -88,6 +88,27 @@ class SetCriterion(nn.Module):
         teacher_soft = F.softmax(teacher_logits / temperature, dim=-1)
         response_loss = F.kl_div(student_soft, teacher_soft,reduction='batchmean') * (temperature ** 2)        
         return {'loss_kd_response': response_loss}
+    
+    def loss_kd_attention(self, outputs, targets, indices, num_boxes, **kwargs):
+        if self.teacher is None or self.student is None: #kd_attention is not configured if student is not pass to criterion
+            Warning('kd_attention is not configured if student is not pass to criterion')
+            return {'loss_kd_attn': torch.tensor(0., device=outputs['pred_logits'].device)}
+        
+        batch_idx_student, idx_student = self._get_src_permutation_idx(self.teacher['indices'])
+        batch_idx_teacher, idx_teacher = self._get_tgt_permutation_idx(self.teacher['indices'])
+        
+        st_decoder_layers = self.student.module.decoder.decoder.layers  
+        tr_decoder_layers = self.teacher['model'].transformer.decoder.layers
+        
+        loss_per_layer = 0.0
+        for layer_id in [1,2,3,4,5]:
+            student_attn_weights = st_decoder_layers[layer_id].cross_attn_weights[batch_idx_student, idx_student]
+            teacher_attn_weights = tr_decoder_layers[layer_id].cross_attn_weights[batch_idx_teacher, idx_teacher]
+            loss_per_layer += F.mse_loss(student_attn_weights,teacher_attn_weights)
+            
+        attention_loss = loss_per_layer / 5 #TODO: input the number of layers
+        return {'loss_kd_attn': attention_loss}
+    
 
     def loss_labels_bce(self, outputs, targets, indices, num_boxes, log=True):
         src_logits = outputs['pred_logits']
@@ -238,7 +259,8 @@ class SetCriterion(nn.Module):
             'focal': self.loss_labels_focal,
             'vfl': self.loss_labels_vfl,
             #added by me for kd loss
-            'kd': self.loss_kd,
+            'kd_response': self.loss_kd_response,
+            'kd_attn': self.loss_kd_attention,
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
@@ -251,6 +273,7 @@ class SetCriterion(nn.Module):
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         self.teacher = kwargs.pop('teacher', None)
+        self.student= kwargs.pop('student', None)
         outputs_without_aux = {k: v for k, v in outputs.items() if 'aux' not in k}
 
         # Retrieve the matching between the outputs of the last layer and the targets
@@ -277,7 +300,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if loss in {'masks', 'kd'}: #dont compute kd loss for aux outputs
+                    if loss in {'masks', 'kd_response', 'kd_attn'}: #dont compute kd loss for aux outputs
                         # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     kwargs = {}
@@ -299,7 +322,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
                 # indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if loss in {'masks', 'kd'}: #dont compute kd loss for aux outputs
+                    if loss in {'masks', 'kd_response', 'kd_attn'}: #dont compute kd loss for aux outputs
                         # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     kwargs = {}

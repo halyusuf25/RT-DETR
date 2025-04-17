@@ -33,7 +33,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
-
+    temp_flag_for_kd_attn = True
     for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -66,18 +66,12 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                 
                 img_size_tensor = torch.stack([torch.tensor([samples.shape[2], samples.shape[3]], device=device)] * len(samples))
                 teacher['targets'],teacher['topk_indices'] = teacher['postprocessor'](teacher['outputs'],img_size_tensor)
-
-                loss_dict = criterion(outputs, targets, teacher=teacher)
+                if temp_flag_for_kd_attn:
+                    loss_dict = criterion(outputs, targets, teacher=teacher, student=model)
+                else:
+                    loss_dict = criterion(outputs, targets, teacher=teacher)
             else:
                 loss_dict = criterion(outputs, targets)
-                
-            # loss_dict['atten_map_loss'] = compute_attention_map_loss(outputs,
-            #                                                             teacher_outputs,
-            #                                                             model,
-            #                                                             teacher_model,
-            #                                                             criterion.matcher,
-            #                                                             [1,3,5], #decoder layers to include into distillation
-            #                                                             teacher_topk_indices,)
             
             loss = sum(loss_dict.values())
             optimizer.zero_grad()
