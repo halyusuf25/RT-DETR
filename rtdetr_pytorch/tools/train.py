@@ -9,7 +9,7 @@ import argparse
 import src.misc.dist as dist 
 from src.core import YAMLConfig 
 from src.solver import TASKS
-from src.nn.teacher import get_teacher_model
+from src.nn.teacher import get_teacher
 
 TEACHER_ARGS_PATH = '/data/shared/pretrained_models/hdeformable/args900.pkl'
 TEACHER_PRETRAINED_MODEL_PATH = '/data/shared/pretrained_models/hdeformable/ckpt900.pth'
@@ -33,7 +33,7 @@ def main(args, ) -> None:
     )
 
     solver = TASKS[cfg.yaml_cfg['task']](cfg)
-    teacher = get_teacher_model(
+    teacher = get_teacher(
         teacher_args_path= TEACHER_ARGS_PATH,
         teacher_pretrained_model_path= TEACHER_PRETRAINED_MODEL_PATH, 
         teacher_pretrained_backbone_path= TEACHER_PRETRAINED_BACKBONE_PATH
@@ -41,7 +41,7 @@ def main(args, ) -> None:
     if args.test_only:
         solver.val()
     else:
-        solver.fit(teacher_model=teacher['model'])
+        solver.fit(teacher=teacher)
 
 
 if __name__ == '__main__':

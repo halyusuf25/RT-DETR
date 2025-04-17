@@ -58,7 +58,7 @@ class SetCriterion(nn.Module):
         """
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
-
+        
         idx = self._get_src_permutation_idx(indices)
         target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
         target_classes = torch.full(src_logits.shape[:2], self.num_classes,
@@ -72,6 +72,22 @@ class SetCriterion(nn.Module):
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
+
+    def loss_kd(self, outputs, targets, indices, num_boxes, temperature = 1.0, **kwargs):
+        if self.teacher is None:
+            return {'loss_kd_response': torch.tensor(0., device=outputs['pred_logits'].device)}
+        
+        batch_idx_student, idx_student = self._get_src_permutation_idx(self.teacher['indices'])
+        batch_idx_teacher, idx_teacher = self._get_tgt_permutation_idx(self.teacher['indices'])
+        
+        student_logits = outputs['pred_logits'][batch_idx_student, idx_student]
+        teacher_logits = self.teacher['outputs']['pred_logits'][batch_idx_teacher, idx_teacher]
+
+        # Compute KL divergence
+        student_soft = F.log_softmax(student_logits / temperature, dim=-1)
+        teacher_soft = F.softmax(teacher_logits / temperature, dim=-1)
+        response_loss = F.kl_div(student_soft, teacher_soft,reduction='batchmean') * (temperature ** 2)        
+        return {'loss_kd_response': response_loss}
 
     def loss_labels_bce(self, outputs, targets, indices, num_boxes, log=True):
         src_logits = outputs['pred_logits']
@@ -217,25 +233,30 @@ class SetCriterion(nn.Module):
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
             'masks': self.loss_masks,
-
+            
             'bce': self.loss_labels_bce,
             'focal': self.loss_labels_focal,
             'vfl': self.loss_labels_vfl,
+            #added by me for kd loss
+            'kd': self.loss_kd,
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets, **kwargs):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
+        self.teacher = kwargs.pop('teacher', None)
         outputs_without_aux = {k: v for k, v in outputs.items() if 'aux' not in k}
 
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
+        if self.teacher is not None:
+            self.teacher['indices'] = self.matcher(outputs_without_aux, self.teacher['targets'])
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
@@ -247,7 +268,7 @@ class SetCriterion(nn.Module):
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes)
+            l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes, **kwargs)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
 
@@ -256,7 +277,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if loss == 'masks':
+                    if loss in {'masks', 'kd'}: #dont compute kd loss for aux outputs
                         # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     kwargs = {}
@@ -278,7 +299,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
                 # indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if loss == 'masks':
+                    if loss in {'masks', 'kd'}: #dont compute kd loss for aux outputs
                         # Intermediate masks losses are too costly to compute, we ignore them.
                         continue
                     kwargs = {}

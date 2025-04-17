@@ -17,12 +17,12 @@ import torch.amp
 
 from src.data import CocoEvaluator
 from src.misc import (MetricLogger, SmoothedValue, reduce_dict)
-from src.misc.distillation import compute_response_loss, compute_attention_map_loss, get_topk_queries
+from src.misc.distillation import compute_response_loss, compute_attention_map_loss, get_topk_queries, get_teacher_topk_queries
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0, 
-                    teacher_model: torch.nn.Module = None, **kwargs):
+                    teacher: dict = None, **kwargs):
     model.train()
     criterion.train()
     metric_logger = MetricLogger(delimiter="  ")
@@ -33,10 +33,6 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
-
-    if teacher_model is not None:
-        teacher_model.eval()
-        teacher_model = teacher_model.to(device)
 
     for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
         samples = samples.to(device)
@@ -63,25 +59,26 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         else:
             outputs = model(samples, targets)
-            loss_dict = criterion(outputs, targets)
-            if teacher_model is not None:
-                
+            # loss_dict = criterion(outputs, targets)
+            if teacher is not None:             
                 with torch.no_grad():
-                    teacher_outputs = teacher_model(samples)
+                    teacher['outputs'] = teacher['model'](samples)
+                
+                img_size_tensor = torch.stack([torch.tensor([samples.shape[2], samples.shape[3]], device=device)] * len(samples))
+                teacher['targets'],teacher['topk_indices'] = teacher['postprocessor'](teacher['outputs'],img_size_tensor)
 
-                _ , teacher_topk_indices = get_topk_queries(teacher_outputs["pred_logits_per_layer"], k=100)
-                teacher_topk_indices = teacher_topk_indices.long()
-                loss_dict['kd_response_loss'] = compute_response_loss(outputs, 
-                                                                      teacher_outputs, 
-                                                                      temperature=1.0)  
-                loss_dict['atten_map_loss'] = compute_attention_map_loss(outputs,
-                                                                         teacher_outputs,
-                                                                         model,
-                                                                         teacher_model,
-                                                                         criterion.matcher,
-                                                                         [1,2,3,4,5], #decoder layers to include into distillation
-                                                                         teacher_topk_indices,)
-                 
+                loss_dict = criterion(outputs, targets, teacher=teacher)
+            else:
+                loss_dict = criterion(outputs, targets)
+                
+            # loss_dict['atten_map_loss'] = compute_attention_map_loss(outputs,
+            #                                                             teacher_outputs,
+            #                                                             model,
+            #                                                             teacher_model,
+            #                                                             criterion.matcher,
+            #                                                             [1,3,5], #decoder layers to include into distillation
+            #                                                             teacher_topk_indices,)
+            
             loss = sum(loss_dict.values())
             optimizer.zero_grad()
             loss.backward()
