@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.path.expanduser('/data/halyusuf/github/test/H-Deformable-DETR'))
 from models import build_model
 
-def get_teacher_model(
+def get_teacher(
     teacher_args_path: str,
     teacher_pretrained_model_path: str,
     teacher_pretrained_backbone_path: str

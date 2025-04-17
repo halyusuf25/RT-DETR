@@ -16,9 +16,12 @@ from .det_engine import train_one_epoch, evaluate
 
 class DetSolver(BaseSolver):
     
-    def fit(self, teacher_model=None):
+    def fit(self, teacher=None):
         print("Start training")
-        self.teacher_model = teacher_model
+        self.teacher = teacher
+
+
+
         self.train()
         args = self.cfg 
         
@@ -33,11 +36,16 @@ class DetSolver(BaseSolver):
         for epoch in range(self.last_epoch + 1, args.epoches):
             if dist.is_dist_available_and_initialized():
                 self.train_dataloader.sampler.set_epoch(epoch)
+
+            if teacher is not None:
+                self.teacher['model'] = teacher['model'].to(self.device)
+                self.teacher['model'].eval()
+                self.teacher['postprocessor'] = teacher['postprocessors']['bbox'].to(self.device)
             
             train_stats = train_one_epoch(
                 self.model, self.criterion, self.train_dataloader, self.optimizer, self.device, epoch,
                 args.clip_max_norm, print_freq=args.log_step, ema=self.ema, scaler=self.scaler,
-                teacher_model = self.teacher_model)
+                teacher = self.teacher)
 
             self.lr_scheduler.step()
             

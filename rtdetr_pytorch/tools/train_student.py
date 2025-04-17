@@ -9,7 +9,6 @@ import argparse
 import src.misc.dist as dist 
 from src.core import YAMLConfig 
 from src.solver import TASKS
-from src.nn.teacher import get_teacher_model
 
 def main(args, ) -> None:
     '''main
