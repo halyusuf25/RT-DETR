@@ -33,7 +33,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     
     ema = kwargs.get('ema', None)
     scaler = kwargs.get('scaler', None)
-    temp_flag_for_kd_attn = True
+    temp_flag_for_kd_attn = False #includ feature-kd into loss computation
     for samples, targets in metric_logger.log_every(tqdm(data_loader, desc=header, total=len(data_loader)), print_freq, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -65,7 +65,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     teacher['outputs'] = teacher['model'](samples)
                 
                 img_size_tensor = torch.stack([torch.tensor([samples.shape[2], samples.shape[3]], device=device)] * len(samples))
-                teacher['targets'],teacher['topk_indices'] = teacher['postprocessor'](teacher['outputs'],img_size_tensor)
+                teacher['targets'], teacher['topk_indices'] = teacher['postprocessor'](teacher['outputs'],img_size_tensor)
                 if temp_flag_for_kd_attn:
                     loss_dict = criterion(outputs, targets, teacher=teacher, student=model)
                 else:
