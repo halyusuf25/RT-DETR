@@ -1,6 +1,7 @@
 
 import os
 import pickle
+import torch
 import sys
 sys.path.append(os.path.expanduser('/data/halyusuf/github/test/H-Deformable-DETR'))
 from models import build_model
@@ -29,3 +30,19 @@ def get_teacher(
     teacher['model'], teacher['criterion'], teacher['postprocessors'] = build_model(loaded_args)
 
     return teacher
+
+
+def get_teacher_topk_indices(indices, topk_indices):
+    # allowed_target_indices: a Python set or tensor of allowed indices
+    allowed_target_indices = set(topk_indices)  # example
+
+    filtered_indices = []
+    for pred_idx, tgt_idx in indices:
+        # tgt_idx is a tensor of indices
+        mask = torch.tensor([i.item() in allowed_target_indices for i in tgt_idx], device=tgt_idx.device)
+        # Filter both pred_idx and tgt_idx using the mask
+        filtered_pred_idx = pred_idx[mask]
+        filtered_tgt_idx = tgt_idx[mask]
+        filtered_indices.append((filtered_pred_idx, filtered_tgt_idx))
+
+    return filtered_indices
