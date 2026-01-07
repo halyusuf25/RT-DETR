@@ -14,7 +14,7 @@ RTDETR:
 PResNet:
   depth: 50
   variant: d
-  freeze_at: 0
+  freeze_at: 0 # Change from 0 to 4 to freeze all stages for a faster training, we are already loaded a pretrained ResNet50
   return_idx: [1, 2, 3]
   num_stages: 4
   freeze_norm: True

@@ -8,13 +8,13 @@ train_dataloader:
   dataset: 
     type: CocoDetection
     img_folder: /data/shared/coco/train2017/
-    ann_file: /data/shared/coco//annotations/instances_train2017.json
+    ann_file: /data/shared/coco/annotations/instances_train2017.json
     transforms:
       type: Compose
       ops: ~
   shuffle: True
-  batch_size: 8
-  num_workers: 4
+  batch_size: 16
+  num_workers: 8
   drop_last: True 
 
 
@@ -29,6 +29,6 @@ val_dataloader:
       ops: ~ 
 
   shuffle: False
-  batch_size: 8
-  num_workers: 4
+  batch_size: 16
+  num_workers: 8
   drop_last: False
