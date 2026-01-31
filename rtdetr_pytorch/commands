@@ -62,9 +62,20 @@ OMP_NUM_THREADS=64 CUDA_VISIBLE_DEVICES=1,2,3,4,5 torchrun --nproc_per_node=5 to
 OMP_NUM_THREADS=10 torchrun --nproc_per_node=6 tools/train_copy.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
 
 
-OMP_NUM_THREADS=10 CUDA_VISIBLE_DEVICES=1,2,3,4,5 torchrun --nproc_per_node=5 tools/train.py \
+OMP_NUM_THREADS=10 torchrun --nproc_per_node=4 tools/train.py \
                         -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
-                        -r output/student_100e/checkpoint0074.pth
+                        -r output/student_topk300/checkpoint0040.pth
 
 
 CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 --master_port=32345 tools/train.py -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml
+
+
+OMP_NUM_THREADS=8 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 torchrun --nproc_per_node=5 tools/train.py \
+                                                    -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+                                                    -r output/frozen_backbone/checkpoint0037.pth
+
+
+CUDA_VISIBLE_DEVICES=2,3,4,5 torchrun --nproc_per_node=4 tools/train.py \
+                                    -c configs/rtdetr/rtdetr_r50vd_6x_coco.yml \
+                                    -r output/frozen_backbone/checkpoint0071.pth \
+                                    --test-only
