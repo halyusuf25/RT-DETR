@@ -87,3 +87,14 @@ def masks_to_boxes(masks):
     y_min = y_mask.masked_fill(~(masks.bool()), 1e8).flatten(1).min(-1)[0]
 
     return torch.stack([x_min, y_min, x_max, y_max], 1)
+
+
+def get_topk_queries(outputs, topk_indices= 300, num_classes=91):
+    index = outputs["topk_indices"]
+    bbox_pred = outputs["outputs"]["pred_boxes"]
+    labels = index % num_classes
+    index = index // num_classes
+    boxes = bbox_pred.gather(dim=1, index=index.unsqueeze(-1).repeat(1, 1, bbox_pred.shape[-1]))
+
+    return labels, boxes
+

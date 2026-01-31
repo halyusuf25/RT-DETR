@@ -16,6 +16,7 @@ from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
 
 from src.misc.dist import get_world_size, is_dist_available_and_initialized
 from src.core import register
+from src.nn.teacher import get_teacher_topk_indices
 
 
 
@@ -74,19 +75,46 @@ class SetCriterion(nn.Module):
         return losses
 
     def loss_kd_response(self, outputs, targets, indices, num_boxes, temperature = 1.0, **kwargs):
-        if self.teacher is None:
-            return {'loss_kd_response': torch.tensor(0., device=outputs['pred_logits'].device)}
+        # if self.teacher is None:
+        #     return {'loss_kd_response': torch.tensor(0., device=outputs['pred_logits'].device)}
         
-        batch_idx_student, idx_student = self._get_src_permutation_idx(self.teacher['indices'])
-        batch_idx_teacher, idx_teacher = self._get_tgt_permutation_idx(self.teacher['indices'])
+        # batch_idx_student, idx_student = self._get_src_permutation_idx(self.teacher['indices'])
+        # batch_idx_teacher, idx_teacher = self._get_tgt_permutation_idx(self.teacher['indices'])
         
-        student_logits = outputs['pred_logits'][batch_idx_student, idx_student]
-        teacher_logits = self.teacher['outputs']['pred_logits'][batch_idx_teacher, idx_teacher]
+        # student_logits = outputs['pred_logits'][batch_idx_student, idx_student]
+        # teacher_logits = self.teacher['outputs']['pred_logits'][batch_idx_teacher, idx_teacher]
 
-        # Compute KL divergence
-        student_soft = F.log_softmax(student_logits / temperature, dim=-1)
-        teacher_soft = F.softmax(teacher_logits / temperature, dim=-1)
-        response_loss = F.kl_div(student_soft, teacher_soft,reduction='batchmean') * (temperature ** 2)        
+        # # Compute KL divergence
+        # student_soft = F.log_softmax(student_logits / temperature, dim=-1)
+        # teacher_soft = F.softmax(teacher_logits / temperature, dim=-1)
+        # response_loss = F.kl_div(student_soft, teacher_soft,reduction='batchmean') * (temperature ** 2)        
+        
+
+        assert 'pred_boxes' in outputs
+        idx = self._get_src_permutation_idx(self.teacher['indices'])
+        teacher_idx = self._get_tgt_permutation_idx(self.teacher['indices'])
+        
+        # classification loss
+        src_logits = outputs['pred_logits']
+        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(self.teacher["targets"], self.teacher["indices"])])
+        target_classes = torch.full(src_logits.shape[:2], self.num_classes,
+                                    dtype=torch.int64, device=src_logits.device)
+        target_classes[idx] = target_classes_o
+        
+        target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
+        loss = F.binary_cross_entropy_with_logits(src_logits, target * 1., reduction='none')
+        l_classification = loss.mean(1).sum() * src_logits.shape[1] / self.teacher["num_boxes"]
+        
+        #boxes loss
+        src_boxes = outputs['pred_boxes'][idx]
+        target_boxes = self.teacher["outputs"]["pred_boxes"][teacher_idx]
+
+        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+        l_bbox = loss_bbox.sum() / self.teacher["num_boxes"]
+        
+        print(f"loss_bbox : {loss_bbox}")
+        print(f'kd response classification loss: {l_classification}, kd response bbox loss: {l_bbox}')
+        response_loss = l_classification + l_bbox
         return {'loss_kd_response': response_loss}
     
     def loss_kd_attention(self, outputs, targets, indices, num_boxes, **kwargs):
@@ -195,11 +223,10 @@ class SetCriterion(nn.Module):
         idx = self._get_src_permutation_idx(indices)
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
-
         losses = {}
 
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
-        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
+        losses['loss_bbox'] = loss_bbox.sum() / num_boxes      
 
         loss_giou = 1 - torch.diag(generalized_box_iou(
                 box_cxcywh_to_xyxy(src_boxes),
@@ -264,6 +291,23 @@ class SetCriterion(nn.Module):
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
+    
+    def compute_num_boxes(self, outputs, targets):
+        """ Compute the average number of target boxes accross all nodes, for normalization purposes
+        """
+        num_boxes = sum(len(t["labels"]) for t in targets)
+        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
+        if is_dist_available_and_initialized():
+            torch.distributed.all_reduce(num_boxes)
+        num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+        
+        teacher_num_boxes = sum(len(t["labels"]) for t in self.teacher['targets'])
+        teacher_num_boxes = torch.as_tensor([teacher_num_boxes], dtype=torch.float, device=next(iter(self.teacher["outputs"].values())).device)
+        if is_dist_available_and_initialized():
+            torch.distributed.all_reduce(teacher_num_boxes)
+        teacher_num_boxes = torch.clamp(teacher_num_boxes / get_world_size(), min=1).item()
+        
+        return num_boxes, teacher_num_boxes
 
     def forward(self, outputs, targets, **kwargs):
         """ This performs the loss computation.
@@ -275,18 +319,20 @@ class SetCriterion(nn.Module):
         self.teacher = kwargs.pop('teacher', None)
         self.student= kwargs.pop('student', None)
         outputs_without_aux = {k: v for k, v in outputs.items() if 'aux' not in k}
-
         # Retrieve the matching between the outputs of the last layer and the targets
         indices = self.matcher(outputs_without_aux, targets)
+        
         if self.teacher is not None:
             self.teacher['indices'] = self.matcher(outputs_without_aux, self.teacher['targets'])
+            self.teacher['indices'] = get_teacher_topk_indices(self.teacher['indices'], self.teacher['topk_indices'])
 
         # Compute the average number of target boxes accross all nodes, for normalization purposes
-        num_boxes = sum(len(t["labels"]) for t in targets)
-        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
-        if is_dist_available_and_initialized():
-            torch.distributed.all_reduce(num_boxes)
-        num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+        # num_boxes = sum(len(t["labels"]) for t in targets)
+        # num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
+        # if is_dist_available_and_initialized():
+        #     torch.distributed.all_reduce(num_boxes)
+        # num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+        num_boxes, self.teacher["num_boxes"] = self.compute_num_boxes(outputs, targets)
 
         # Compute all the requested losses
         losses = {}

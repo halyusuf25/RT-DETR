@@ -1,4 +1,51 @@
 import torch
+import torchvision
+
+
+def _get_src_permutation_idx(indices):
+    # permute predictions following indices
+    batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
+    src_idx = torch.cat([src for (src, _) in indices])
+    return batch_idx, src_idx
+
+def _get_tgt_permutation_idx(indices):
+    # permute targets following indices
+    batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
+    tgt_idx = torch.cat([tgt for (_, tgt) in indices])
+    return batch_idx, tgt_idx
+
+def matching_outputs(matcher, batch_size, 
+                               layer_id, 
+                               student_outputs, 
+                               teacher_outputs, 
+                               topk_teacher_indices
+):
+    """
+    Matches the outputs of the student model to the teacher model's outputs for a specific layer.
+    Args:
+        matcher (callable): A function or callable object that performs the matching between student and teacher outputs.
+        batch_size (int): The number of samples in the batch.
+        layer_id (int): The ID of the layer for which the matching is performed.
+        student_outputs (dict): A dictionary containing the student model's outputs. 
+            Expected keys are 'intermediate_logits' and 'intermediate_reference_points'.
+        teacher_outputs (dict): A dictionary containing the teacher model's outputs.
+            Expected keys are 'pred_logits_per_layer' and 'pred_boxes_per_layer'.
+    Returns:
+        dict: The result of the matcher function, which contains the matched outputs.
+    """
+    
+    st_output = {"pred_logits": student_outputs['pred_logits'],
+                 "pred_boxes": student_outputs['pred_boxes']}
+    targets = []
+    for item in range(batch_size):
+        _, class_labels = torch.max(teacher_outputs['pred_logits'][item, topk_teacher_indices[item]], dim=-1)
+        boxes = teacher_outputs['pred_boxes'][item, topk_teacher_indices[item]]
+        # boxes = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
+        # targets.append({"class_labels": class_labels.detach().cpu(), "boxes": boxes.detach().cpu()})
+        targets.append({"labels": class_labels, "boxes": boxes})
+
+    matcher_outputs = matcher(st_output, targets)
+    return matcher_outputs
 
 def matching_outputs_per_layer(matcher, batch_size, 
                                layer_id, 
@@ -26,12 +73,29 @@ def matching_outputs_per_layer(matcher, batch_size,
     for item in range(batch_size):
         _, class_labels = torch.max(teacher_outputs['pred_logits_per_layer'][layer_id, item, topk_teacher_indices[layer_id, item]], dim=-1)
         boxes = teacher_outputs['pred_boxes_per_layer'][layer_id, item, topk_teacher_indices[layer_id, item]]
+        # boxes = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
         # targets.append({"class_labels": class_labels.detach().cpu(), "boxes": boxes.detach().cpu()})
         targets.append({"labels": class_labels, "boxes": boxes})
 
     matcher_outputs = matcher(st_output, targets)
     return matcher_outputs
 
+
+def get_teacher_topk_queries(logits, topk=100):
+    """
+    Copied from https://github.com/HDETR/H-Deformable-DETR/blob/f58ceb1165da4b0cd10e9a5a30c7a77fbd33f492/models/deformable_detr.py#L560
+    Extracts the top-k queries from the given logits based on their probabilities.
+    Args:
+        logits (torch.Tensor): The input tensor containing logits.
+        k (int, optional): The number of top queries to extract. Defaults to 100.
+    Returns:
+        tuple: A tuple containing:
+            - topk_values (torch.Tensor): The top-k probabilities.
+            - topk_indexes (torch.Tensor): The indexes of the top-k probabilities.
+    """
+    prob = logits.sigmoid()
+    topk_values, topk_indexes = torch.topk(prob.view(logits.shape[0], -1), k=topk, dim=1)
+    return topk_values, topk_indexes
 
 def get_topk_queries(input_logits, k=100):
     """
@@ -43,6 +107,17 @@ def get_topk_queries(input_logits, k=100):
         topk_values (torch.Tensor): The top k values of the input logits tensor.
         topk_indices (torch.Tensor): The top k indices of the input logits tensor.
     """
+    #copied from https://github.com/HDETR/H-Deformable-DETR/blob/f58ceb1165da4b0cd10e9a5a30c7a77fbd33f492/models/deformable_detr.py#L560
+    # out_logits, out_bbox = outputs["pred_logits"], outputs["pred_boxes"]
+
+    # assert len(out_logits) == len(target_sizes)
+    # assert target_sizes.shape[1] == 2
+
+    # prob = out_logits.sigmoid()
+    # topk_values, topk_indexes = torch.topk(
+    #     prob.view(out_logits.shape[0], -1), self.topk, dim=1
+    # )
+
     queries = torch.softmax(input_logits, dim=-1)   # Shape becomes [num_layers, batch_size, num_queries, num_classes]
     queries = queries.max(dim=-1, keepdim=True).values  # Shape becomes [num_layers, batch_size, num_queries, 1]
     queries = queries.squeeze(-1)  # Shape becomes [num_layers, batch_size, num_queries]
@@ -76,7 +151,7 @@ def get_topk_indices(teacher_topk_indices, matched_indices):
     return list(st_topk_indices), tr_after_matching
 
 
-def compute_response_loss(student_outputs, teacher_outputs, temperature=1.0):
+def compute_response_loss(student_outputs, teacher_outputs, matcher, temperature=1.0):
     """
     Computes the response distillation loss between the student and teacher model outputs.
     This function calculates the Kullback-Leibler divergence loss between the softmax outputs
@@ -92,13 +167,24 @@ def compute_response_loss(student_outputs, teacher_outputs, temperature=1.0):
     Returns:
         torch.Tensor: The computed response distillation loss.
     """
+    
+    indices = matcher(student_outputs, teacher_outputs)
+    src_batch_idx, src_idx = _get_src_permutation_idx(indices)
+    tgt_batch_idx, tgt_idx = _get_tgt_permutation_idx(indices)
 
-    student_logits = student_outputs['pred_logits']
-    teacher_logits = teacher_outputs['pred_logits']
+    print(f"src_batch_idx: {src_batch_idx}")
+    print(f"src_idx: {src_idx}")
+    print(f"tgt_batch_idx: {tgt_batch_idx}")
+    print(f"tgt_idx: {tgt_idx}")
+
+    student_logits = student_outputs['pred_logits'][src_batch_idx, src_idx]
+    teacher_logits = teacher_outputs['pred_logits'][tgt_batch_idx, tgt_idx]
 
     student_soft = torch.nn.functional.log_softmax(student_logits / temperature, dim=1)
     teacher_soft = torch.nn.functional.softmax(teacher_logits / temperature, dim=1)
     response_distillation_loss = torch.nn.functional.kl_div(student_soft, teacher_soft, reduction='batchmean') * (temperature ** 2)
+
+    
    
     return response_distillation_loss
 
@@ -141,7 +227,7 @@ def compute_attention_map_loss(student_outputs,
                 continue
             student_attn_weights = st_decoder_layers[layer_id].cross_attn_weights[batch_item, st_quer_indices]
             teacher_attn_weights = tr_decoder_layers[layer_id].cross_attn_weights[batch_item, tr_quer_indices]
-            loss_per_batch += max(attn_map_loss_fn(student_attn_weights,teacher_attn_weights),0.0)
+            loss_per_batch += attn_map_loss_fn(student_attn_weights,teacher_attn_weights)
             # print(f"loss_per_batch: {loss_per_batch}")
         
         total_attn_map_loss += loss_per_batch / batch_size
